@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>网络攻击监控仪表盘</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <style>
+        body {
+            background-color: #0d1117;
+            color: #c9d1d9;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .dashboard-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1.5rem 0;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        
+        .stat-card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+        }
+        
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(180deg, #667eea, #764ba2);
+        }
+        
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin: 0.5rem 0;
+        }
+        
+        .stat-label {
+            color: #8b949e;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .risk-critical { color: #f85149 !important; }
+        .risk-high { color: #ff9500 !important; }
+        .risk-medium { color: #ffab00 !important; }
+        .risk-low { color: #3fb950 !important; }
+        
+        .chart-container {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            height: 400px;
+        }
+        
+        .top-list-container {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            height: 500px;
+            overflow-y: auto;
+        }
+        
+        .alert-item {
+            background: #161b22;
+            border-left: 4px solid #30363d;
+            border-radius: 4px;
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            transition: all 0.2s;
+        }
+        
+        .alert-item:hover {
+            background: #1c2128;
+            border-left-color: #667eea;
+        }
+        
+        .alert-item.critical { border-left-color: #f85149; }
+        .alert-item.high { border-left-color: #ff9500; }
+        .alert-item.medium { border-left-color: #ffab00; }
+        .alert-item.low { border-left-color: #3fb950; }
+        
+        .threat-card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .connection-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: bold;
+        }
+        
+        .status-connected {
+            background: rgba(63, 185, 80, 0.2);
+            color: #3fb950;
+            border: 1px solid #3fb950;
+        }
+        
+        .status-disconnected {
+            background: rgba(248, 81, 73, 0.2);
+            color: #f85149;
+            border: 1px solid #f85149;
+        }
+        
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.6; }
+            100% { opacity: 1; }
+        }
+        
+        .loading-spinner {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 200px;
+        }
+        
+        .threat-level-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        
+        .auto-refresh {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+        
+        .nav-tabs .nav-link {
+            color: #8b949e;
+            border-color: #30363d;
+            background: #161b22;
+        }
+        
+        .nav-tabs .nav-link.active {
+            color: #c9d1d9;
+            background: #0d1117;
+            border-color: #667eea;
+        }
+        
+        .table-dark {
+            background-color: #161b22;
+        }
+        
+        .table-dark th,
+        .table-dark td {
+            border-color: #30363d;
+        }
+        
+        .list-group-item {
+            background-color: #161b22;
+            border-color: #30363d;
+            color: #c9d1d9;
+        }
+        
+        .progress {
+            background-color: #30363d;
+        }
+        
+        .list-group-item {
+            background-color: #161b22;
+            border-color: #30363d;
+            color: #c9d1d9;
+            padding: 0.75rem 1rem;
+            margin-bottom: 0.25rem;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+        }
+        
+        .list-group-item:hover {
+            background-color: #1c2128;
+            transform: translateX(2px);
+        }
+        
+        .badge {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <!-- 连接状态指示器 -->
+    <div id="connection-status" class="connection-status status-disconnected">
+        <i class="bi bi-wifi-off"></i> 未连接
+    </div>
+
+    <!-- 页面头部 -->
+    <div class="dashboard-header">
+        <div class="container-fluid">
+            <div class="row align-items-center">
+                <div class="col-md-6">
+                    <h1 class="mb-0">
+                        <i class="bi bi-shield-exclamation"></i>
+                        网络攻击监控仪表盘
+                    </h1>
+                    <p class="mb-0 mt-2">实时监控网络安全威胁，智能分析攻击模式</p>
+                </div>
+                <div class="col-md-6 text-md-end">
+                    <div class="d-flex align-items-center justify-content-md-end">
+                        <span class="me-3">最后更新: <span id="last-update">-</span></span>
+                        <button class="btn btn-light btn-sm" onclick="refreshDashboard()">
+                            <i class="bi bi-arrow-clockwise"></i> 刷新
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主要内容区域 -->
+    <div class="container-fluid">
+        <!-- 统计卡片 -->
+        <div class="row mb-4">
+            <div class="col-lg-3 col-md-6 mb-3">
+                <div class="stat-card">
+                    <div class="stat-label">今日攻击</div>
+                    <div class="stat-number" id="today-attacks">0</div>
+                    <small class="text-muted">较昨日 <span id="today-change">+0%</span></small>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-6 mb-3">
+                <div class="stat-card">
+                    <div class="stat-label">本周攻击</div>
+                    <div class="stat-number" id="week-attacks">0</div>
+                    <small class="text-muted">总计 <span id="total-attacks">0</span></small>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-6 mb-3">
+                <div class="stat-card">
+                    <div class="stat-label">高危攻击</div>
+                    <div class="stat-number risk-critical" id="high-risk-attacks">0</div>
+                    <small class="text-muted">优先级 1-2</small>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-6 mb-3">
+                <div class="stat-card">
+                    <div class="stat-label">活跃攻击源</div>
+                    <div class="stat-number" id="active-sources">0</div>
+                    <small class="text-muted">受攻击目标 <span id="attacked-targets">0</span></small>
+                </div>
+            </div>
+        </div>
+
+        <!-- 攻击数据和图表区域 -->
+        <div class="row">
+            <!-- 攻击数据列表 -->
+            <div class="col-lg-6 mb-4">
+                <div class="chart-container">
+                    <h5 class="mb-3">
+                        <i class="bi bi-list-ul"></i> 最新攻击记录
+                        <button class="btn btn-sm btn-outline-light float-end" onclick="loadAttackData()">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                    </h5>
+                    <div class="table-responsive" style="max-height: 350px; overflow-y: auto;">
+                        <table class="table table-dark table-sm">
+                            <thead class="sticky-top">
+                                <tr>
+                                    <th>时间</th>
+                                    <th>攻击类型</th>
+                                    <th>源IP</th>
+                                    <th>目标IP</th>
+                                    <th>协议</th>
+                                    <th>风险</th>
+                                </tr>
+                            </thead>
+                            <tbody id="attack-data-table">
+                                <tr>
+                                    <td colspan="6" class="text-center">加载中...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 攻击统计图表 -->
+            <div class="col-lg-6 mb-4">
+                <div class="chart-container">
+                    <h5 class="mb-3">
+                        <i class="bi bi-bar-chart"></i> 攻击类型分布
+                    </h5>
+                    <canvas id="attack-type-chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- 详细统计区域 -->
+        <div class="row">
+            <!-- 攻击源TOP10 -->
+            <div class="col-lg-3 mb-4">
+                <div class="top-list-container">
+                    <h5 class="mb-3">
+                        <i class="bi bi-trophy"></i> 攻击源 TOP10
+                    </h5>
+                    <div id="top-sources-list" class="list-group">
+                        <div class="text-center">加载中...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 攻击目标TOP10 -->
+            <div class="col-lg-3 mb-4">
+                <div class="top-list-container">
+                    <h5 class="mb-3">
+                        <i class="bi bi-bullseye"></i> 攻击目标 TOP10
+                    </h5>
+                    <div id="top-targets-list" class="list-group">
+                        <div class="text-center">加载中...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 机器学习置信度 -->
+            <div class="col-lg-3 mb-4">
+                <div class="top-list-container">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0">
+                            <i class="bi bi-cpu"></i> ML置信度分析
+                        </h5>
+                        <div class="d-flex align-items-center">
+                            <div class="form-check form-check form-switch me-2">
+                                <input class="form-check-input" type="checkbox" id="ml-auto-refresh-toggle" checked>
+                                <label class="form-check-label text-light small" for="ml-auto-refresh-toggle">
+                                    实时
+                                </label>
+                            </div>
+                            <button class="btn btn-sm btn-outline-light" id="manual-ml-refresh" onclick="refreshMLConfidence()">
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <small class="text-muted">平均置信度</small>
+                            <span id="avg-confidence" class="badge bg-info">-</span>
+                        </div>
+                        <div class="progress" style="height: 6px;">
+                            <div class="progress-bar bg-info" id="confidence-progress" style="width: 0%; transition: width 0.5s ease-in-out;"></div>
+                        </div>
+                        <div class="text-end mt-1">
+                            <small id="ml-last-update" class="text-muted">更新中...</small>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="row text-center">
+                            <div class="col-4">
+                                <div class="d-flex flex-column align-items-center">
+                                    <small class="text-muted d-block">高(>70%)</small>
+                                    <span id="high-confidence-count" class="badge bg-danger fs-6">0</span>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="d-flex flex-column align-items-center">
+                                    <small class="text-muted d-block">中(40-70%)</small>
+                                    <span id="medium-confidence-count" class="badge bg-warning fs-6">0</span>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="d-flex flex-column align-items-center">
+                                    <small class="text-muted d-block">低(<40%)</small>
+                                    <span id="low-confidence-count" class="badge bg-success fs-6">0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="recent-confidence-list" style="max-height: 250px; overflow-y: auto; font-size: 0.85rem;">
+                        <div class="text-center p-3">
+                            <div class="spinner-border spinner-border-sm text-light" role="status">
+                                <span class="visually-hidden">加载中...</span>
+                            </div>
+                            <div class="small text-muted mt-2">正在加载ML分析数据...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 实时告警 -->
+            <div class="col-lg-3 mb-4">
+                <div class="top-list-container">
+                    <h5 class="mb-3">
+                        <i class="bi bi-exclamation-triangle"></i> 实时告警
+                    </h5>
+                    <div id="realtime-alerts" class="alert-list">
+                        <div class="text-center">等待数据...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 自动刷新控制 -->
+    <div class="auto-refresh">
+        <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="auto-refresh-toggle" checked>
+            <label class="form-check-label text-light" for="auto-refresh-toggle">
+                自动刷新 (30秒)
+            </label>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 全局变量
+        let socket;
+        let attackTypeChart;
+        let autoRefreshInterval;
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeSocket();
+            loadDashboardData();
+            initializeCharts();
+            setupAutoRefresh();
+            // 初始化ML模块
+            loadMLConfidence();
+            setupMLAutoRefresh();
+        });
+        
+        // 初始化WebSocket连接
+        function initializeSocket() {
+            socket = io();
+            
+            socket.on('connect', function() {
+                updateConnectionStatus(true);
+                console.log('已连接到服务器');
+            });
+            
+            socket.on('disconnect', function() {
+                updateConnectionStatus(false);
+                console.log('与服务器断开连接');
+            });
+            
+            socket.on('new_attack', function(data) {
+                handleNewAttack(data);
+            });
+            
+            socket.on('ml_confidence_update', function(data) {
+                // 实时更新ML置信度数据
+                updateMLConfidenceDisplay(data);
+            });
+        }
+        
+        // 更新连接状态
+        function updateConnectionStatus(connected) {
+            const statusElement = document.getElementById('connection-status');
+            if (connected) {
+                statusElement.className = 'connection-status status-connected pulse';
+                statusElement.innerHTML = '<i class="bi bi-wifi"></i> 已连接';
+            } else {
+                statusElement.className = 'connection-status status-disconnected';
+                statusElement.innerHTML = '<i class="bi bi-wifi-off"></i> 未连接';
+            }
+        }
+        
+        // 加载仪表盘数据
+        function loadDashboardData() {
+            // 加载统计数据
+            fetch('/api/dashboard/statistics')
+                .then(response => response.json())
+                .then(data => {
+                    updateStatisticsCards(data);
+                    updateTopLists(data);
+                })
+                .catch(error => console.error('加载统计数据失败:', error));
+            
+            // 加载攻击数据
+            loadAttackData();
+            
+            // 加载ML置信度数据
+            loadMLConfidence();
+        }
+        
+        // 更新统计卡片
+        function updateStatisticsCards(stats) {
+            document.getElementById('today-attacks').textContent = stats.today_attacks || 0;
+            document.getElementById('week-attacks').textContent = stats.week_attacks || 0;
+            document.getElementById('total-attacks').textContent = stats.total_attacks || 0;
+            document.getElementById('high-risk-attacks').textContent = stats.high_risk_attacks || 0;
+            document.getElementById('active-sources').textContent = stats.top_sources ? stats.top_sources.length : 0;
+            document.getElementById('attacked-targets').textContent = stats.top_targets ? stats.top_targets.length : 0;
+            
+            // 更新最后更新时间
+            document.getElementById('last-update').textContent = new Date().toLocaleString('zh-CN');
+        }
+        
+        // 更新TOP列表
+        function updateTopLists(stats) {
+            // 更新攻击源TOP10
+            const sourcesList = document.getElementById('top-sources-list');
+            if (stats.top_sources && stats.top_sources.length > 0) {
+                sourcesList.innerHTML = stats.top_sources.map((source, index) => `
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <span>
+                            <strong>#${index + 1}</strong> ${source.ip}
+                        </span>
+                        <span class="badge bg-danger rounded-pill">${source.count}</span>
+                    </div>
+                `).join('');
+            } else {
+                sourcesList.innerHTML = '<div class="text-center text-muted">暂无数据</div>';
+            }
+            
+            // 更新攻击目标TOP10
+            const targetsList = document.getElementById('top-targets-list');
+            if (stats.top_targets && stats.top_targets.length > 0) {
+                targetsList.innerHTML = stats.top_targets.map((target, index) => `
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <span>
+                            <strong>#${index + 1}</strong> ${target.ip}
+                        </span>
+                        <span class="badge bg-warning rounded-pill">${target.count}</span>
+                    </div>
+                `).join('');
+            } else {
+                targetsList.innerHTML = '<div class="text-center text-muted">暂无数据</div>';
+            }
+        }
+        
+        // 加载攻击数据
+        function loadAttackData() {
+            fetch('/api/dashboard/attack-data')
+                .then(response => response.json())
+                .then(data => {
+                    updateAttackTable(data.attacks);
+                    updateAttackTypeChart(data.attacks);
+                })
+                .catch(error => console.error('加载攻击数据失败:', error));
+        }
+        
+        // 更新攻击数据表格
+        function updateAttackTable(attacks) {
+            const tableBody = document.getElementById('attack-data-table');
+            
+            if (attacks && attacks.length > 0) {
+                tableBody.innerHTML = attacks.map(attack => {
+                    const time = new Date(attack.timestamp).toLocaleString('zh-CN', {
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+                    
+                    const riskClass = `risk-${attack.risk_level}`;
+                    const riskText = {
+                        'critical': '高危',
+                        'high': '中危',
+                        'medium': '低危',
+                        'low': '安全'
+                    }[attack.risk_level] || '未知';
+                    
+                    return `
+                        <tr>
+                            <td><small>${time}</small></td>
+                            <td><small title="${attack.attack_type}">${attack.attack_type.length > 20 ? attack.attack_type.substring(0, 20) + '...' : attack.attack_type}</small></td>
+                            <td><small>${attack.source_ip}</small></td>
+                            <td><small>${attack.target_ip}</small></td>
+                            <td><small>${attack.protocol}</small></td>
+                            <td><small class="${riskClass}">${riskText}</small></td>
+                        </tr>
+                    `;
+                }).join('');
+            } else {
+                tableBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">暂无攻击记录</td></tr>';
+            }
+        }
+        
+        // 初始化图表
+        function initializeCharts() {
+            const ctx = document.getElementById('attack-type-chart').getContext('2d');
+            attackTypeChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        data: [],
+                        backgroundColor: [
+                            '#f85149', '#ff9500', '#ffab00', '#3fb950',
+                            '#58a6ff', '#bc8cff', '#d2a8ff', '#f778ba'
+                        ],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                color: '#c9d1d9',
+                                padding: 15,
+                                font: {
+                                    size: 11
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // 更新攻击类型图表
+        function updateAttackTypeChart(attacks) {
+            if (!attacks || !attackTypeChart) return;
+            
+            // 统计攻击类型
+            const typeCounts = {};
+            attacks.forEach(attack => {
+                const type = attack.attack_type;
+                typeCounts[type] = (typeCounts[type] || 0) + 1;
+            });
+            
+            // 排序并取前8个
+            const sortedTypes = Object.entries(typeCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 8);
+            
+            // 更新图表
+            attackTypeChart.data.labels = sortedTypes.map(([type]) => 
+                type.length > 15 ? type.substring(0, 15) + '...' : type
+            );
+            attackTypeChart.data.datasets[0].data = sortedTypes.map(([, count]) => count);
+            attackTypeChart.update();
+        }
+        
+        // 处理新攻击
+        function handleNewAttack(attack) {
+            // 添加到实时告警
+            const alertsContainer = document.getElementById('realtime-alerts');
+            const alertItem = document.createElement('div');
+            alertItem.className = `alert-item ${attack.risk_level}`;
+            alertItem.innerHTML = `
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <strong>${attack.signature}</strong>
+                        <div class="small text-muted mt-1">
+                            ${attack.src_ip}:${attack.src_port} → ${attack.dst_ip}:${attack.dst_port}
+                        </div>
+                    </div>
+                    <small class="text-muted">${new Date(attack.timestamp).toLocaleTimeString('zh-CN')}</small>
+                </div>
+            `;
+            
+            // 插入到顶部
+            alertsContainer.insertBefore(alertItem, alertsContainer.firstChild);
+            
+            // 限制显示数量
+            while (alertsContainer.children.length > 10) {
+                alertsContainer.removeChild(alertsContainer.lastChild);
+            }
+            
+            // 更新统计数据
+            loadDashboardData();
+            // 也刷新ML置信度，因为新攻击可能产生新的ML分析
+            loadMLConfidence();
+        }
+        
+        // 设置自动刷新
+        function setupAutoRefresh() {
+            const toggle = document.getElementById('auto-refresh-toggle');
+            
+            function startAutoRefresh() {
+                if (autoRefreshInterval) {
+                    clearInterval(autoRefreshInterval);
+                }
+                autoRefreshInterval = setInterval(() => {
+                    if (toggle.checked) {
+                        loadDashboardData();
+                        // 主仪表盘刷新时也检查ML数据
+                        loadMLConfidence();
+                    }
+                }, 30000); // 30秒刷新一次
+            }
+            
+            toggle.addEventListener('change', startAutoRefresh);
+            startAutoRefresh();
+        }
+        
+        // ML置信度自动刷新间隔
+        let mlRefreshInterval = null;
+        
+        // 加载ML置信度数据
+        function loadMLConfidence() {
+            fetch('/api/dashboard/ml-confidence')
+                .then(response => response.json())
+                .then(data => {
+                    updateMLConfidenceDisplay(data);
+                })
+                .catch(error => {
+                    console.error('加载ML置信度数据失败:', error);
+                    // 网络错误时显示提示
+                    const confidenceList = document.getElementById('recent-confidence-list');
+                    confidenceList.innerHTML = '<div class="text-center text-danger">连接失败，请检查网络</div>';
+                });
+        }
+        
+        // 设置ML置信度自动刷新
+        function setupMLAutoRefresh() {
+            const toggle = document.getElementById('ml-auto-refresh-toggle');
+            
+            function startMLAutoRefresh() {
+                if (mlRefreshInterval) {
+                    clearInterval(mlRefreshInterval);
+                }
+                mlRefreshInterval = setInterval(() => {
+                    if (toggle && toggle.checked) {
+                        loadMLConfidence();
+                    }
+                }, 5000); // 5秒刷新一次，更频繁地更新ML数据
+            }
+            
+            if (toggle) {
+                toggle.addEventListener('change', startMLAutoRefresh);
+                startMLAutoRefresh();
+            } else {
+                // 如果没有开关，默认启动自动刷新
+                startMLAutoRefresh();
+            }
+        }
+        
+        // 更新ML置信度显示 - 优化版本
+        function updateMLConfidenceDisplay(data) {
+            try {
+                // 更新统计信息
+                const stats = data.statistics || {};
+                const avgConfidence = stats.avg_confidence || 0;
+                const confidenceDistribution = stats.confidence_distribution || {'high (>0.7)': 0, 'medium (0.4-0.7)': 0, 'low (<0.4)': 0};
+                
+                // 更新平均值和进度条
+                const avgElement = document.getElementById('avg-confidence');
+                const progressElement = document.getElementById('confidence-progress');
+                if (avgElement) avgElement.textContent = avgConfidence.toFixed(3);
+                if (progressElement) progressElement.style.width = (avgConfidence * 100) + '%';
+                
+                // 更新分布计数
+                const highElement = document.getElementById('high-confidence-count');
+                const mediumElement = document.getElementById('medium-confidence-count');
+                const lowElement = document.getElementById('low-confidence-count');
+                
+                if (highElement) highElement.textContent = confidenceDistribution['high (>0.7)'];
+                if (mediumElement) mediumElement.textContent = confidenceDistribution['medium (0.4-0.7)'];
+                if (lowElement) lowElement.textContent = confidenceDistribution['low (<0.4)'];
+                
+                // 更新最近置信度列表
+                const confidenceList = document.getElementById('recent-confidence-list');
+                if (confidenceList) {
+                    const recentData = data.recent_confidence_data || [];
+                    
+                    if (recentData.length > 0) {
+                        confidenceList.innerHTML = recentData.slice(0, 15).map((item, index) => {
+                            const time = new Date(item.timestamp).toLocaleString('zh-CN', {
+                                month: '2-digit',
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit'
+                            });
+                            
+                            let confidenceClass = 'bg-success';
+                            let confidenceText = '低';
+                            if (item.confidence > 0.7) {
+                                confidenceClass = 'bg-danger';
+                                confidenceText = '高';
+                            } else if (item.confidence >= 0.4) {
+                                confidenceClass = 'bg-warning';
+                                confidenceText = '中';
+                            }
+                            
+                            return `
+                                <div class="list-group-item p-2 mb-1 border-start border-4 border-${confidenceClass.replace('bg-', '')}" style="border-left-width: 4px !important;">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div class="flex-grow-1">
+                                            <small class="text-muted"><i class="far fa-clock"></i> ${time}</small>
+                                            <div class="small fw-medium mt-1">${item.attack_type}</div>
+                                        </div>
+                                        <div class="text-end">
+                                            <span class="badge ${confidenceClass}">${(item.confidence * 100).toFixed(1)}%</span>
+                                            <div class="small text-muted">${confidenceText}置信度</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('');
+                        
+                        // 添加"更多数据"提示
+                        if (recentData.length >= 15) {
+                            confidenceList.innerHTML += `
+                                <div class="text-center text-muted small mt-2">
+                                    <i class="fas fa-info-circle"></i> 显示最近15条记录，共${data.statistics?.total_attacks || 0}条
+                                </div>
+                            `;
+                        }
+                    } else {
+                        confidenceList.innerHTML = `
+                            <div class="text-center text-muted p-4">
+                                <i class="fas fa-chart-line fa-2x mb-2"></i>
+                                <div>暂无ML分析数据</div>
+                                <small class="text-muted">等待系统生成分析结果...</small>
+                            </div>
+                        `;
+                    }
+                }
+                
+                // 更新最后更新时间
+                const lastUpdateElement = document.getElementById('ml-last-update');
+                if (lastUpdateElement) {
+                    lastUpdateElement.textContent = new Date().toLocaleTimeString('zh-CN');
+                }
+                
+            } catch (error) {
+                console.error('更新ML置信度显示失败:', error);
+            }
+        }
+        
+        // 手动刷新ML置信度
+        function refreshMLConfidence() {
+            const button = document.getElementById('manual-ml-refresh');
+            if (button) {
+                button.disabled = true;
+                button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 刷新中...';
+            }
+            
+            loadMLConfidence();
+            
+            // 2秒后恢复按钮状态
+            setTimeout(() => {
+                if (button) {
+                    button.disabled = false;
+                    button.innerHTML = '<i class="fas fa-sync-alt"></i> 手动刷新';
+                }
+            }, 2000);
+        }
+        
+        // 手动刷新
+        function refreshDashboard() {
+            loadDashboardData();
+        }
+    </script>
+</body>
+</html>
